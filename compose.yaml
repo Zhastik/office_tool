@@ -1,0 +1,59 @@
+name: pdfwork
+
+x-runtime: &runtime
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+  logging:
+    driver: local
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  web:
+    <<: *runtime
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+    ports:
+      - "${PDFWORK_BIND:-127.0.0.1}:${PDFWORK_PORT:-8765}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - edge
+      - backend
+    tmpfs:
+      - /tmp:size=16m,mode=1777,noexec,nosuid,nodev
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -T 2 -O /dev/null http://127.0.0.1:8080/ && wget -q -T 2 -O /dev/null http://127.0.0.1:8080/api/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+
+  api:
+    <<: *runtime
+    build:
+      context: .
+      dockerfile: deploy/api.Dockerfile
+    environment:
+      PDFWORK_VERSION: "${PDFWORK_VERSION:-0.1.0}"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/ready', timeout=2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+
+networks:
+  edge:
+  backend:
+    internal: true
+

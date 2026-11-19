@@ -1,0 +1,57 @@
+name: Verify PDFwork
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+      - run: npm run check
+
+      - name: Validate Docker Compose
+        run: docker compose config --quiet
+
+      - name: Build and start services
+        run: docker compose up --build -d --wait --wait-timeout 90
+
+      - name: Verify HTTP and privacy boundaries
+        run: npm run check:deployment
+
+      - name: Install FFmpeg test utilities
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg
+
+      - name: Run browser smoke tests through Nginx
+        env:
+          PDFWORK_SMOKE_WEBM_ONLY: '1'
+        run: |
+          npm run smoke
+          npm run smoke:tools
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Stop services
+        if: always()
+        run: docker compose down
+
+
